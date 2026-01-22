@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Pass types enum
+enum PassType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// Session status enum (EXPIRED computed dynamically)
+enum SessionStatus {
+  PENDING
+  ACTIVE
+  REFUNDED
+}
+
+// Admin role enum
+enum AdminRole {
+  ADMIN
+  ENFORCEMENT
+}
+
+// Tariffs table for dynamic pricing
+model Tariff {
+  id               String   @id @default(uuid())
+  passType         PassType @unique @map("pass_type")
+  name             String   // Display name e.g. "Monthly Pass"
+  priceAmount      Int      @map("price_amount") // Price in pence
+  currency         String   @default("gbp")
+  durationMinutes  Int      @map("duration_minutes")
+  isActive         Boolean  @default(true) @map("is_active")
+  isRecommended    Boolean  @default(false) @map("is_recommended")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("tariffs")
+}
+
+// Parking sessions - main transaction table
+model ParkingSession {
+  id                        String        @id @default(uuid())
+  plateNumber               String        @map("plate_number")
+  carMake                   String        @map("car_make")
+  email                     String
+  passType                  PassType      @map("pass_type")
+  status                    SessionStatus @default(PENDING)
+
+  // Tariff snapshot at time of purchase
+  tariffName                String        @map("tariff_name")
+  tariffPriceAmount         Int           @map("tariff_price_amount")
+  tariffCurrency            String        @map("tariff_currency")
+
+  // Validity period
+  startTime                 DateTime?     @map("start_time") @db.Timestamptz
+  endTime                   DateTime?     @map("end_time") @db.Timestamptz
+
+  // Stripe references
+  stripeCheckoutSessionId   String?       @map("stripe_checkout_session_id")
+  stripeSubscriptionId      String?       @map("stripe_subscription_id")
+  stripePaymentIntentId     String?       @map("stripe_payment_intent_id")
+  stripeCustomerId          String?       @map("stripe_customer_id")
+
+  // Timestamps
+  createdAt                 DateTime      @default(now()) @map("created_at")
+  updatedAt                 DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  notes                     SessionNote[]
+
+  @@index([plateNumber])
+  @@index([stripeCheckoutSessionId])
+  @@index([stripeSubscriptionId])
+  @@index([status])
+  @@map("parking_sessions")
+}
+
+// Session notes for audit/admin comments
+model SessionNote {
+  id          String         @id @default(uuid())
+  sessionId   String         @map("session_id")
+  note        String
+  createdBy   String         @map("created_by")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  session     ParkingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("session_notes")
+}
+
+// Admin users for staff authentication
+model AdminUser {
+  id            String     @id @default(uuid())
+  username      String     @unique
+  passwordHash  String     @map("password_hash")
+  role          AdminRole  @default(ENFORCEMENT)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  auditLogs     AuditLog[] @relation("AuditLogActor")
+
+  @@map("admin_users")
+}
+
+// Audit logs for tracking admin actions
+model AuditLog {
+  id          String    @id @default(uuid())
+  action      String    // e.g. "PASSWORD_RESET", "TARIFF_UPDATE"
+  actorId     String?   @map("actor_id")
+  targetId    String?   @map("target_id") // ID of affected resource
+  targetType  String?   @map("target_type") // e.g. "AdminUser", "Tariff"
+  details     String?   // JSON string with additional details
+  ipAddress   String?   @map("ip_address")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  actor       AdminUser? @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([actorId])
+  @@index([targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
