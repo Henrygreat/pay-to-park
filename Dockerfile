@@ -8,8 +8,9 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./prisma.config.ts
 
-# Install dependencies (includes dev deps for build + tsx for seed if needed)
+# Install dependencies (includes dev deps needed for build)
 RUN npm ci
 
 # Generate Prisma client
@@ -20,6 +21,7 @@ COPY . .
 
 # Build Next.js (standalone output)
 RUN npm run build
+
 
 # ----------------------------
 # Production stage
@@ -33,16 +35,22 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
-# Copy Next standalone output
-COPY --from=builder /app/public ./public
+# --- IMPORTANT ---
+# Copy Next.js standalone server output (includes server.js + minimal node_modules)
 COPY --from=builder /app/.next/standalone ./
+
+# Copy static assets required at runtime
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
-# Copy Prisma schema/migrations/seed
+# Copy Prisma schema/migrations/seed + prisma config (for migrate/seed if you run it)
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder /app/package.json ./package.json
 
-# ✅ Copy ALL node_modules so runtime tools exist (bcryptjs, tsx, prisma CLI deps, etc.)
-COPY --from=builder /app/node_modules ./node_modules
+# Optional: if you want to run seed inside the container terminal
+# (tsx is used by your "npm run db:seed")
+RUN npm i -g tsx
 
 # Permissions
 RUN chown -R nextjs:nodejs /app
