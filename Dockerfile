@@ -8,9 +8,8 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 COPY prisma ./prisma/
-COPY prisma.config.ts ./prisma.config.ts
 
-# Install dependencies (includes dev deps needed for build)
+# Install deps needed for build
 RUN npm ci
 
 # Generate Prisma client
@@ -35,21 +34,19 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
-# --- IMPORTANT ---
-# Copy Next.js standalone server output (includes server.js + minimal node_modules)
+# Copy Next standalone server output (includes server.js + runtime)
 COPY --from=builder /app/.next/standalone ./
 
 # Copy static assets required at runtime
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy Prisma schema/migrations/seed + prisma config (for migrate/seed if you run it)
+# Copy Prisma schema/migrations/seed (optional but useful for terminal migrations/seeding)
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/package.json ./package.json
 
-# Optional: if you want to run seed inside the container terminal
-# (tsx is used by your "npm run db:seed")
+# If you plan to run "npm run db:seed" inside Coolify terminal,
+# you need tsx available. (If you won't seed in-container, remove these 2 lines)
 RUN npm i -g tsx
 
 # Permissions
@@ -60,5 +57,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Start Next standalone server
 CMD ["node", "server.js"]
